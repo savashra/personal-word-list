@@ -1,118 +1,64 @@
 import os
 from os.path import join, dirname
 from dotenv import load_dotenv
-from flask import (Flask,request,render_template,redirect,url_for,jsonify)
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from pymongo import MongoClient
-import requests
-from datetime import datetime
-from bson import ObjectId
-app =Flask(__name__)
+import certifi
+
 dotenv_path = join(dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 MONGODB_URI = os.environ.get("MONGODB_URI")
 DB_NAME =  os.environ.get("DB_NAME")
 client = MongoClient(MONGODB_URI)
 db = client[DB_NAME]
+app = Flask(__name__)
 
 @app.route('/')
-def main ():
-    words_result = db.words.find({}, {'_id': False})
-    words = []
-    for word in words_result:
-        definition = word['definitions'][0]['shortdef']
-        definition = definition if type(definition) is str else definition[0]
-        words.append({
-            'word': word['word'],
-            'definition': definition,
-        })
-    msg= request.args.get('msg')
-    return render_template('index.html', words=words, msg=msg)
+def main():
+    return render_template("index.html")
 
-@app.route('/detail/<keyword>')
-def detail(keyword):
-    api_key = 'f59f0053-0d31-40e9-aad3-320210ad6d69'
-    url = f'https://www.dictionaryapi.com/api/v3/references/collegiate/json/{keyword}?key={api_key}'
-    response = requests.get(url)
-    definitions = response.json()
+@app.route('/restaurants', methods=['GET'])
+def get_restaurants():
+    restaurants = list(db.restaurants.find({}, {'_id': False}))
+    return jsonify({
+        'result':'success',
+        'restaurants': restaurants,
+    })
 
-    if not definitions:
-        return redirect(url_for(
-            'main',
-            msg=f'Could not find the word {keyword}'
-        ))
-    if type(definitions[0]) is str:
-        return redirect(url_for(
-            'main',
-            msg=f'Could not find the word {keyword}, did you mean {", ".join(definitions)}?'
-        ))
-    status=request.args.get('status_give', 'new')
-    return render_template('detail.html',word=keyword, definitions=definitions,status=status)
+@app.route('/map')
+def map_example():
+    return render_template('prac_map.html')
 
-@app.route('/api/save_word', methods=['POST'])
-def save_word():
-    json_data = request.get_json()
-    word = json_data.get('word_give')
-    definitions = json_data.get('definitions_give')
-    doc = {
-        'word': word,
-        'definitions': definitions,
-        'date': datetime.now().strftime('%Y.%m.%d'),
+@app.route('/restaurant/create', methods=['POST'])
+def create_restaurant():
+    name=request.form.get('name')
+    categories=request.form.get('categories')
+    location=request.form.get('location')
+    longitude=request.form.get('longitude')
+    latitude=request.form.get('latitude')
+
+    doc={
+        'name':name,
+        'categories': categories,
+        'location': location,
+        'longitude': longitude,
+        'center':[longitude, latitude],
     }
-    db.words.insert_one(doc)
+    db.restaurants.insert_one(doc)
     return jsonify({
         'result': 'success',
-        'msg': f'the word, {word}, was saved!!!',
+        'msg': 'Sukses menambahkan Restaurant!'
     })
 
-@app.route('/api/delete_word', methods=['POST'])
-def delete_word():
-    word = request.form.get('word_give')
-    db.words.delete_one({'word': word})
-    db.examples.delete_many({'word': word})
+@app.route('/restaurant/delete', methods=['POST'])
+def delete_restaurant():
+    name=request.form.get('name')
+    db.restaurants.delete_one({'name': name})
     return jsonify({
-        'result': 'success',
-        'msg': f'the word {word} was deleted'
-    }) 
-
-@app.route('/api/get_exs', methods=['GET'])
-def get_exs():
-    word = request.args.get('word')
-    example_data =db.examples.find({'word':word})
-    examples=[]
-    for example in example_data:
-        examples.append({
-            'example': example.get('example'),
-            'id': str(example.get('_id')),
-        })
-    return jsonify({
-        'result': 'success',
-        'examples': examples                
+       'result': 'success',
+       'msg': 'Sukses Menghapus Restoran!'
     })
 
-@app.route('/api/save_ex', methods=['POST'])
-def save_ex():
-    word = request.form.get('word')
-    example = request.form.get('example')
-    doc= {
-        'word':word,
-        'example': example,
-    }
-    db.examples.insert_one(doc)
-    return jsonify({
-        'result': 'success',
-        'msg':f'your example,{example}, for the word,{word}, was saved!!'
-    })
-
-
-@app.route('/api/delete_ex', methods=['POST'])
-def delete_ex():
-    id = request.form.get('id')
-    word = request.form.get('word')
-    db.examples.delete_one({'_id': ObjectId(id)})
-    return jsonify({
-        'result': 'success',
-        'msg': f'Your example for the word,{word}, was deleted!!',
-    })
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=5000, debug=True)
